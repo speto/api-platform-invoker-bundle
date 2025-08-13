@@ -58,6 +58,8 @@ final class UriVarValueResolverTest extends TestCase
         $argument->shouldReceive('getAttributes')
             ->with(MapUriVar::class, ArgumentMetadata::IS_INSTANCEOF)
             ->andReturn([]);
+        $argument->shouldReceive('getName')
+            ->andReturn('nonExistentParam');
 
         $result = iterator_to_array($this->resolver->resolve($request, $argument));
 
@@ -163,5 +165,122 @@ final class UriVarValueResolverTest extends TestCase
         self::assertCount(1, $result);
         self::assertInstanceOf(SingleFactoryValueObject::class, $result[0]);
         self::assertSame('company-123', $result[0]->value);
+    }
+
+    public function testMagicMappingWithCustomObject(): void
+    {
+        $request = new Request();
+        $request->attributes->set('companyId', 'company-456');
+
+        $argument = Mockery::mock(ArgumentMetadata::class);
+        $argument->shouldReceive('getAttributes')
+            ->with(MapUriVar::class, ArgumentMetadata::IS_INSTANCEOF)
+            ->andReturn([]);
+        $argument->shouldReceive('getName')
+            ->andReturn('companyId');
+        $argument->shouldReceive('getType')
+            ->andReturn(CompanyId::class);
+
+        $result = iterator_to_array($this->resolver->resolve($request, $argument));
+
+        self::assertCount(1, $result);
+        self::assertInstanceOf(CompanyId::class, $result[0]);
+        self::assertSame('company-456', $result[0]->value);
+    }
+
+    public function testMagicMappingWithStringType(): void
+    {
+        $request = new Request();
+        $request->attributes->set('departmentId', 'engineering');
+
+        $argument = Mockery::mock(ArgumentMetadata::class);
+        $argument->shouldReceive('getAttributes')
+            ->with(MapUriVar::class, ArgumentMetadata::IS_INSTANCEOF)
+            ->andReturn([]);
+        $argument->shouldReceive('getName')
+            ->andReturn('departmentId');
+        $argument->shouldReceive('getType')
+            ->andReturn('string');
+
+        $result = iterator_to_array($this->resolver->resolve($request, $argument));
+
+        self::assertCount(1, $result);
+        self::assertSame('engineering', $result[0]);
+    }
+
+    public function testMagicMappingWithIntType(): void
+    {
+        $request = new Request();
+        $request->attributes->set('userId', '123');
+
+        $argument = Mockery::mock(ArgumentMetadata::class);
+        $argument->shouldReceive('getAttributes')
+            ->with(MapUriVar::class, ArgumentMetadata::IS_INSTANCEOF)
+            ->andReturn([]);
+        $argument->shouldReceive('getName')
+            ->andReturn('userId');
+        $argument->shouldReceive('getType')
+            ->andReturn('int');
+
+        $result = iterator_to_array($this->resolver->resolve($request, $argument));
+
+        self::assertCount(1, $result);
+        self::assertSame(123, $result[0]);
+    }
+
+    public function testMagicMappingWithMissingUriVariable(): void
+    {
+        $request = new Request();
+
+        $argument = Mockery::mock(ArgumentMetadata::class);
+        $argument->shouldReceive('getAttributes')
+            ->with(MapUriVar::class, ArgumentMetadata::IS_INSTANCEOF)
+            ->andReturn([]);
+        $argument->shouldReceive('getName')
+            ->andReturn('companyId');
+
+        $result = iterator_to_array($this->resolver->resolve($request, $argument));
+
+        self::assertCount(0, $result);
+    }
+
+    public function testMagicMappingWithMismatchedParameterName(): void
+    {
+        $request = new Request();
+        $request->attributes->set('companyId', 'company-789');
+
+        $argument = Mockery::mock(ArgumentMetadata::class);
+        $argument->shouldReceive('getAttributes')
+            ->with(MapUriVar::class, ArgumentMetadata::IS_INSTANCEOF)
+            ->andReturn([]);
+        $argument->shouldReceive('getName')
+            ->andReturn('differentName');
+
+        $result = iterator_to_array($this->resolver->resolve($request, $argument));
+
+        self::assertCount(0, $result);
+    }
+
+    public function testExplicitAttributeTakesPrecedenceOverMagicMapping(): void
+    {
+        $request = new Request();
+        $request->attributes->set('companyId', 'magic-value');
+        $request->attributes->set('userId', 'explicit-value');
+
+        $mapUriVar = new MapUriVar('userId');
+
+        $argument = Mockery::mock(ArgumentMetadata::class);
+        $argument->shouldReceive('getAttributes')
+            ->with(MapUriVar::class, ArgumentMetadata::IS_INSTANCEOF)
+            ->andReturn([$mapUriVar]);
+        $argument->shouldReceive('getName')
+            ->andReturn('companyId');
+        $argument->shouldReceive('getType')
+            ->andReturn('string');
+
+        $result = iterator_to_array($this->resolver->resolve($request, $argument));
+
+        self::assertCount(1, $result);
+        self::assertSame('explicit-value', $result[0]);
     }
 }

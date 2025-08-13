@@ -242,4 +242,116 @@ final class EndToEndProcessorFlowTest extends TestCase
         self::assertTrue($result->processed);
         self::assertSame('LOWERCASE-COMPANY', $result->companyId);
     }
+
+    public function testMagicMappingWithCustomObjectIntegration(): void
+    {
+        $processor = new class() {
+            public function __invoke(
+                UserResource $data,
+                CompanyId $companyId
+            ): UserResource {
+                $data->companyId = $companyId->value;
+                $data->email = 'magic@' . $companyId->value . '.com';
+                $data->processed = true;
+                return $data;
+            }
+        };
+
+        $this->container->set('magic_mapping_processor', $processor);
+
+        $userData = new UserResource();
+        $userData->name = 'Magic User';
+
+        $operation = new Post(processor: 'magic_mapping_processor');
+        $uriVariables = [
+            'companyId' => 'magic-company-789',
+        ];
+        $context = [
+            'request' => new Request(),
+        ];
+
+        $result = $this->decorator->process($userData, $operation, $uriVariables, $context);
+
+        self::assertInstanceOf(UserResource::class, $result);
+        self::assertTrue($result->processed);
+        self::assertSame('magic-company-789', $result->companyId);
+        self::assertSame('magic@magic-company-789.com', $result->email);
+    }
+
+    public function testMagicMappingWithBuiltinTypesIntegration(): void
+    {
+        $processor = new class() {
+            public function __invoke(
+                UserResource $data,
+                string $departmentId,
+                int $userId
+            ): UserResource {
+                $data->companyId = "dept-{$departmentId}-user-{$userId}";
+                $data->email = "user{$userId}@{$departmentId}.example.com";
+                $data->processed = true;
+                return $data;
+            }
+        };
+
+        $this->container->set('magic_builtin_processor', $processor);
+
+        $userData = new UserResource();
+        $userData->name = 'Builtin Magic User';
+
+        $operation = new Post(processor: 'magic_builtin_processor');
+        $uriVariables = [
+            'departmentId' => 'engineering',
+            'userId' => '42',
+        ];
+        $context = [
+            'request' => new Request(),
+        ];
+
+        $result = $this->decorator->process($userData, $operation, $uriVariables, $context);
+
+        self::assertInstanceOf(UserResource::class, $result);
+        self::assertTrue($result->processed);
+        self::assertSame('dept-engineering-user-42', $result->companyId);
+        self::assertSame('user42@engineering.example.com', $result->email);
+    }
+
+    public function testMagicMappingMixedWithExplicitMappingIntegration(): void
+    {
+        $processor = new class() {
+            public function __invoke(
+                UserResource $data,
+                CompanyId $companyId,
+                #[MapUriVar('departmentId')]
+                string $dept,
+                string $teamId
+            ): UserResource {
+                $data->companyId = $companyId->value;
+                $data->email = "team-{$teamId}@{$dept}.{$companyId->value}.com";
+                $data->processed = true;
+                return $data;
+            }
+        };
+
+        $this->container->set('mixed_mapping_processor', $processor);
+
+        $userData = new UserResource();
+        $userData->name = 'Mixed Mapping User';
+
+        $operation = new Post(processor: 'mixed_mapping_processor');
+        $uriVariables = [
+            'companyId' => 'mixed-corp',
+            'departmentId' => 'research',
+            'teamId' => 'alpha',
+        ];
+        $context = [
+            'request' => new Request(),
+        ];
+
+        $result = $this->decorator->process($userData, $operation, $uriVariables, $context);
+
+        self::assertInstanceOf(UserResource::class, $result);
+        self::assertTrue($result->processed);
+        self::assertSame('mixed-corp', $result->companyId);
+        self::assertSame('team-alpha@research.mixed-corp.com', $result->email);
+    }
 }

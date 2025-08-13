@@ -22,13 +22,20 @@ final class UriVarValueResolver implements ValueResolverInterface
     public function resolve(Request $request, ArgumentMetadata $argument): iterable
     {
         $attrs = $argument->getAttributes(MapUriVar::class, ArgumentMetadata::IS_INSTANCEOF);
-        if (! $attrs) {
-            return [];
+        
+        if ($attrs) {
+            // Explicit mapping with #[MapUriVar] attribute
+            /** @var MapUriVar $attr */
+            $attr = $attrs[0];
+            $name = $attr->name;
+        } else {
+            // Magic mapping: use parameter name as URI variable name
+            $parameterName = $argument->getName();
+            if ($parameterName === null || ! $request->attributes->has($parameterName)) {
+                return [];
+            }
+            $name = $parameterName;
         }
-
-        /** @var MapUriVar $attr */
-        $attr = $attrs[0];
-        $name = $attr->name;
 
         if (! $request->attributes->has($name)) {
             return [];
