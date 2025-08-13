@@ -13,4 +13,10 @@ final class UserResource
     public ?string $companyId = null;
 
     public bool $processed = false;
+
+    public ?string $id = null;
+
+    public bool $loaded = false;
+
+    public bool $hasRequest = false;
 }
