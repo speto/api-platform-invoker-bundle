@@ -37,9 +37,42 @@ final class UriVarValueResolver implements ValueResolverInterface
         $type = $argument->getType();
         if (! $type) {
             return [];
-        } // need class type
+        }
+
+        $value = $request->attributes->get($name);
+
+        if ($this->isBuiltinType($type)) {
+            yield $this->coerceBuiltinValue($type, $value);
+            return;
+        }
 
         /** @var class-string $type */
-        yield $this->instantiator->instantiate($type, $request->attributes->get($name));
+        yield $this->instantiator->instantiate($type, $value);
+    }
+
+    private function isBuiltinType(string $type): bool
+    {
+        return in_array($type, ['string', 'int', 'float', 'bool', 'array', 'object', 'mixed'], true);
+    }
+
+    private function coerceBuiltinValue(string $type, mixed $value): mixed
+    {
+        return match ($type) {
+            'string' => is_scalar($value) || (is_object($value) && method_exists(
+                $value,
+                '__toString'
+            )) ? (string) $value : $value,
+            'int' => is_numeric($value) ? (int) $value : $value,
+            'float' => is_numeric($value) ? (float) $value : $value,
+            'bool' => match ($value) {
+                'true', '1', 1 => true,
+                'false', '0', 0 => false,
+                default => (bool) $value,
+            },
+            'array' => is_array($value) ? $value : [$value],
+            'object' => is_object($value) ? $value : (object) $value,
+            'mixed' => $value,
+            default => $value,
+        };
     }
 }

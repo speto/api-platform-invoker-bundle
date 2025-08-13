@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Speto\ApiPlatformInvokerBundle\Processor\{ActionInvoker, InvokableProcessorDecorator};
+use Speto\ApiPlatformInvokerBundle\Processor\{ActionInvoker, DataValueResolver, InvokableProcessorDecorator};
 use Speto\ApiPlatformInvokerBundle\UriVar\{UriVarInstantiator, UriVarValueResolver};
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
@@ -18,6 +18,11 @@ return static function (ContainerConfigurator $c): void {
     $s->set(UriVarValueResolver::class)
         ->tag('controller.argument_value_resolver', [
             'priority' => 150,
+        ]);
+
+    $s->set(DataValueResolver::class)
+        ->tag('controller.argument_value_resolver', [
+            'priority' => 200,  // Higher priority to handle data before other resolvers
         ]);
 
     $s->set(ActionInvoker::class);

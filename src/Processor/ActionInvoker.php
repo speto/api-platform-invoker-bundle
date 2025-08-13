@@ -41,14 +41,15 @@ final readonly class ActionInvoker
             );
         }
 
-        // Ensure attributes resolvers expect are present (e.g., MapEntity)
+        $request->attributes->set('_api_data', $data);
+        $request->attributes->set('_api_operation', $op);
+
         foreach ($uriVars as $k => $v) {
             if (! $request->attributes->has($k)) {
                 $request->attributes->set($k, $v);
             }
         }
         $request->attributes->set('_route_params', $uriVars + (array) $request->attributes->get('_route_params', []));
-        $request->attributes->set('_api_operation', $op);
 
         $args = $this->argumentResolver->getArguments($request, $callable);
         /** @var T2 $result */

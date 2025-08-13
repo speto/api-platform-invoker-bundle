@@ -18,7 +18,6 @@ final class UriVarInstantiator
         /** @var ReflectionClass<object> $rc */
         $rc = new ReflectionClass($class);
 
-        // Preferred explicit method via class attribute
         if ($attr = $rc->getAttributes(UriVarConstructor::class)[0] ?? null) {
             $method = $attr->newInstance()
                 ->method;
@@ -31,10 +30,10 @@ final class UriVarInstantiator
             }
             /** @var callable(mixed):object $factory */
             $factory = [$class, $method];
-            return $factory($value);
+            $coercedValue = $this->coerceValue($rm->getParameters()[0], $value);
+            return $factory($coercedValue);
         }
 
-        // Candidates: public ctor(mixed) and public static factories returning self with one param
         $candidates = [];
 
         if (($ctor = $rc->getConstructor())
@@ -42,7 +41,8 @@ final class UriVarInstantiator
             && $ctor->getNumberOfRequiredParameters() === 1
             && ParamType::accepts($ctor->getParameters()[0], $value)
         ) {
-            $candidates[] = fn (mixed $v) => new $class($v);
+            $param = $ctor->getParameters()[0];
+            $candidates[] = fn (mixed $v) => new $class($this->coerceValue($param, $v));
         }
 
         foreach ($rc->getMethods(ReflectionMethod::IS_PUBLIC) as $m) {
@@ -50,7 +50,11 @@ final class UriVarInstantiator
                 continue;
             }
             $ret = $m->getReturnType();
-            if (! $ret || ! $ret instanceof \ReflectionNamedType || $ret->isBuiltin() || $ret->getName() !== $class) {
+            if (! $ret || ! $ret instanceof \ReflectionNamedType || $ret->isBuiltin() || ! in_array(
+                $ret->getName(),
+                [$class, 'self'],
+                true
+            )) {
                 continue;
             }
             if (! ParamType::accepts($m->getParameters()[0], $value)) {
@@ -58,13 +62,14 @@ final class UriVarInstantiator
             }
 
             $name = $m->getName();
-            $candidates[] = fn (mixed $v) => $class::$name($v);
+            $param = $m->getParameters()[0];
+            $candidates[] = fn (mixed $v) => $class::$name($this->coerceValue($param, $v));
         }
 
         $count = count($candidates);
         if ($count === 1) {
             $result = $candidates[0]($value);
-            if (!$result instanceof $class) {
+            if (! $result instanceof $class) {
                 throw new \LogicException("Factory for {$class} did not return an instance of {$class}");
             }
             return $result;
@@ -73,5 +78,28 @@ final class UriVarInstantiator
             throw new \LogicException("No usable constructor/factory for {$class}.");
         }
         throw new \LogicException("Ambiguous factories for {$class}; add #[UriVarConstructor(...)] to disambiguate.");
+    }
+
+    private function coerceValue(\ReflectionParameter $param, mixed $value): mixed
+    {
+        $type = $param->getType();
+        if (! $type instanceof \ReflectionNamedType || ! $type->isBuiltin()) {
+            return $value;
+        }
+
+        return match ($type->getName()) {
+            'string' => is_scalar($value) || (is_object($value) && method_exists(
+                $value,
+                '__toString'
+            )) ? (string) $value : $value,
+            'int' => is_numeric($value) ? (int) $value : $value,
+            'float' => is_numeric($value) ? (float) $value : $value,
+            'bool' => match ($value) {
+                'true', '1', 1 => true,
+                'false', '0', 0 => false,
+                default => (bool) $value,
+            },
+            default => $value,
+        };
     }
 }
