@@ -1,0 +1,12 @@
+includes:
+    - phpstan.neon.dist
+
+parameters:
+    level: 8
+    paths:
+        - tests
+    excludePaths:
+        - tests/Fixtures/TestKernel.php
+    ignoreErrors:
+        - '#Call to an undefined method Mockery\\#'
+        - '#PHPDoc tag @var for variable \$mock has invalid type Mockery\\MockInterface#'
