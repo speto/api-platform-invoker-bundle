@@ -30,13 +30,6 @@
         </include>
     </source>
 
-    <coverage includeUncoveredFiles="true" pathCoverage="false" ignoreDeprecatedCodeUnits="true" disableCodeCoverageIgnore="true">
-        <report>
-            <html outputDirectory="coverage"/>
-            <text outputFile="php://stdout" showUncoveredFiles="true" showOnlySummary="false"/>
-        </report>
-    </coverage>
-
     <php>
         <ini name="display_errors" value="1"/>
         <ini name="error_reporting" value="-1"/>
