@@ -40,7 +40,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          composer require "symfony/framework-bundle:${{ matrix.symfony }}" --no-update
+          composer require "symfony/framework-bundle:${{ matrix.symfony }}" --dev --no-scripts --no-plugins
           composer install --prefer-dist --no-progress
 
       - name: Run QA checks

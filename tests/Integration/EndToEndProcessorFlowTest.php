@@ -246,10 +246,8 @@ final class EndToEndProcessorFlowTest extends TestCase
     public function testMagicMappingWithCustomObjectIntegration(): void
     {
         $processor = new class() {
-            public function __invoke(
-                UserResource $data,
-                CompanyId $companyId
-            ): UserResource {
+            public function __invoke(UserResource $data, CompanyId $companyId): UserResource
+            {
                 $data->companyId = $companyId->value;
                 $data->email = 'magic@' . $companyId->value . '.com';
                 $data->processed = true;
@@ -281,11 +279,8 @@ final class EndToEndProcessorFlowTest extends TestCase
     public function testMagicMappingWithBuiltinTypesIntegration(): void
     {
         $processor = new class() {
-            public function __invoke(
-                UserResource $data,
-                string $departmentId,
-                int $userId
-            ): UserResource {
+            public function __invoke(UserResource $data, string $departmentId, int $userId): UserResource
+            {
                 $data->companyId = "dept-{$departmentId}-user-{$userId}";
                 $data->email = "user{$userId}@{$departmentId}.example.com";
                 $data->processed = true;
