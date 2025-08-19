@@ -26,37 +26,122 @@ return [
 ];
 ```
 
-## Basic Usage
+## Example
 
-### Simple Invokable Processor
-
-Instead of implementing `ProcessorInterface`, you can use a simple callable class:
+### Clean Invokable Approach (With This Bundle)
+✅ **Type-safe and clean** - What this bundle enables
 
 ```php
-use ApiPlatform\Metadata\ApiResource;
-use ApiPlatform\Metadata\Post;
-use Speto\ApiPlatformInvokerBundle\UriVar\Attribute\MapUriVar;
+use ApiPlatform\Metadata\{ApiResource, Post, Link};
+use Speto\ApiPlatformInvokerBundle\UriVar\Attribute\MapUriVar; // Optional - automatic mapping works too!
 
+// 1️⃣ Resource configuration
 #[ApiResource(operations: [
     new Post(
         uriTemplate: '/companies/{companyId}/users',
-        processor: RegisterUserAction::class,
+        uriVariables: ['companyId' => new Link(fromClass: CompanyResource::class)],
+        input: RegisterUserInput::class,
+        output: UserOutput::class,
+        processor: RegisterUserAction::class, // ✅ Simple invokable class
     ),
 ])]
 final class UserResource {}
 
-// Simple invokable processor - no ProcessorInterface needed!
+// 2️⃣ Invokable processor - No ProcessorInterface needed!
 final readonly class RegisterUserAction
+{
+    public function __construct(
+        private RegistersUsers $handler,      // ✅ Domain handler interface
+    ) {}
+
+    public function __invoke(
+        RegisterUserInput $input,             // ✅ Type-safe input
+        #[MapUriVar] CompanyId $companyId,    // ✅ Auto-converted from string (or automatic by name match!)
+    ): UserOutput {                           // ✅ Type-safe output
+        // ✅ Create domain command
+        $command = new RegisterUser(
+            companyId: $companyId,
+            email: Email::fromString($input->email),
+            name: $input->name,
+        );
+
+        // ✅ Delegate to domain layer
+        $userId = ($this->handler)($command);
+
+        // ✅ Clean output conversion
+        return new UserOutput(
+            id: $userId->toString(),
+            email: $input->email,
+            name: $input->name,
+            companyId: $companyId->toString(),
+        );
+    }
+}
+
+// 3️⃣ Input DTO - Clear contract
+final readonly class RegisterUserInput
+{
+    public function __construct(
+        public string $email,
+        public string $name,
+    ) {}
+}
+
+// 4️⃣ Output DTO - No domain leakage
+final readonly class UserOutput
+{
+    public function __construct(
+        public string $id,
+        public string $email,
+        public string $name,
+        public string $companyId,
+    ) {}
+}
+```
+
+### Traditional API Platform Approach
+❌ **Verbose and not type-safe** - The standard way without this bundle
+
+```php
+use ApiPlatform\Metadata\{ApiResource, Post, Operation};
+use ApiPlatform\State\ProcessorInterface;
+
+#[ApiResource(operations: [
+    new Post(
+        uriTemplate: '/companies/{companyId}/users',
+        input: UserResource::class,
+        processor: RegisterUserProcessor::class,
+    ),
+])]
+final class UserResource
+{
+    public ?string $id = null;
+    public string $email;
+    public string $name;
+}
+
+final class RegisterUserProcessor implements ProcessorInterface
 {
     public function __construct(
         private UserRepository $userRepository,
         private EventDispatcherInterface $eventDispatcher,
     ) {}
 
-    public function __invoke(
-        UserResource $data,
-        #[MapUriVar('companyId')] CompanyId $companyId,
-    ): UserResource {
+    public function process(
+        mixed $data,                    // ❌ No type safety
+        Operation $operation, 
+        array $uriVariables = [],        // ❌ Array access needed
+        array $context = []              // ❌ Complex context array
+    ): mixed {                           // ❌ No return type safety
+        // ❌ Manual type checking needed
+        if (!$data instanceof UserResource) {
+            throw new \InvalidArgumentException('Invalid data type');
+        }
+        
+        // ❌ Manual URI variable extraction and conversion
+        $companyId = new CompanyId($uriVariables['companyId'] ?? throw new \RuntimeException('Company ID required'));
+        
+        // ❌ Business logic mixed with API concerns
         $user = new User(
             id: UserId::generate(),
             companyId: $companyId,
@@ -72,423 +157,36 @@ final readonly class RegisterUserAction
 }
 ```
 
-## Advanced Examples
+### Pattern Comparison
 
-### Multiple URI Variables
+| Aspect | ❌ Traditional API Platform | ✅ With This Bundle |
+|--------|------------------------------|---------------------|
+| **Interface Required** | ProcessorInterface | None - just __invoke() |
+| **Method Signature** | process(mixed $data, Operation $op, array $uriVars, array $context) | Clean __invoke() with typed params |
+| **Type Safety** | mixed input/output | Full type safety |
+| **URI Variables** | Manual array access & conversion | Auto-converted via #[MapUriVar] or name matching |
+| **IDE Support** | Limited - arrays and mixed types | Full autocomplete & type hints |
+| **Boilerplate Code** | Interface, type checks, conversions | Minimal - just your logic |
+| **Testing** | Complex mocking of arrays/context | Simple, type-safe mocks |
+| **Code Lines** | ~25 lines of boilerplate | ~10 lines of actual logic |
 
-Handle complex routes with multiple typed parameters:
+**🚀 Evolution Path**: Start with basic usage to learn the bundle, then evolve to clean architecture patterns as your application grows. See the [Progression Guide](docs/progression-guide.md) for detailed migration strategies.
 
-```php
-#[ApiResource(operations: [
-    new Get(
-        uriTemplate: '/departments/{departmentId}/teams/{teamId}/members/{memberId}',
-        processor: GetTeamMemberAction::class,
-    ),
-])]
-final class TeamMemberResource {}
+## Documentation
 
-final readonly class GetTeamMemberAction
-{
-    public function __construct(
-        private TeamMemberRepository $repository,
-    ) {}
+For detailed examples and advanced usage, see the documentation:
 
-    public function __invoke(
-        #[MapUriVar('departmentId')] DepartmentId $departmentId,
-        #[MapUriVar('teamId')] TeamId $teamId,
-        #[MapUriVar('memberId')] MemberId $memberId,
-    ): TeamMemberResource {
-        $member = $this->repository->findByIds($departmentId, $teamId, $memberId);
-        
-        if (!$member) {
-            throw new NotFoundHttpException('Team member not found');
-        }
-        
-        return TeamMemberResource::fromEntity($member);
-    }
-}
-```
-
-### Value Objects with Custom Constructors
-
-The bundle supports multiple ways to construct value objects from URI variables:
-
-```php
-use Speto\ApiPlatformInvokerBundle\UriVar\Attribute\UriVarConstructor;
-
-// Option 1: Regular constructor
-final readonly class UserId
-{
-    public function __construct(public string $value)
-    {
-        if (!uuid_is_valid($value)) {
-            throw new \InvalidArgumentException('Invalid UUID');
-        }
-    }
-}
-
-// Option 2: Static factory method (automatically detected)
-final readonly class ProductSku
-{
-    private function __construct(public string $value) {}
-    
-    public static function fromString(string $value): self
-    {
-        // Validation logic here
-        return new self(strtoupper($value));
-    }
-}
-
-// Option 3: Explicit constructor method via attribute
-#[UriVarConstructor('fromUrl')]
-final readonly class OrderNumber
-{
-    private function __construct(public string $value) {}
-    
-    public static function fromUrl(string $value): self
-    {
-        if (!preg_match('/^ORD-\d{6}$/', $value)) {
-            throw new \InvalidArgumentException('Invalid order number format');
-        }
-        return new self($value);
-    }
-    
-    public static function fromCsvLine(string $value): self
-    {
-        $fields = str_getcsv($value);
-        // Assume order number is in the 4th column
-        if (!isset($fields[0]) || !preg_match('/^ORD-\d{6}$/', $fields[3])) {
-            throw new \InvalidArgumentException('Invalid order number format in CSV');
-        }
-        return new self($fields[3]);
-    }
-    
-    public static function generate(): self
-    {
-        return new self('ORD-' . str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT));
-    }
-}
-```
-
-### Complete CRUD Example
-
-Here's a full example with Create, Read, Update, and Delete operations:
-
-```php
-use ApiPlatform\Metadata\{ApiResource, Get, Post, Put, Delete, GetCollection};
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
-use Symfony\Component\Validator\Validator\ValidatorInterface;
-
-#[ApiResource(operations: [
-    new GetCollection(
-        uriTemplate: '/products',
-        processor: ListProductsAction::class,
-    ),
-    new Get(
-        uriTemplate: '/products/{productId}',
-        processor: GetProductAction::class,
-    ),
-    new Post(
-        uriTemplate: '/products',
-        processor: CreateProductAction::class,
-    ),
-    new Put(
-        uriTemplate: '/products/{productId}',
-        processor: UpdateProductAction::class,
-    ),
-    new Delete(
-        uriTemplate: '/products/{productId}',
-        processor: DeleteProductAction::class,
-    ),
-])]
-final class ProductResource
-{
-    public ?string $id = null;
-    public string $name;
-    public string $description;
-    public float $price;
-    public int $stock;
-}
-
-// List all products
-final readonly class ListProductsAction
-{
-    public function __construct(
-        private ProductRepository $repository,
-    ) {}
-
-    public function __invoke(): array
-    {
-        $products = $this->repository->findAll();
-        
-        return array_map(
-            fn(Product $product) => $this->toResource($product),
-            $products
-        );
-    }
-    
-    private function toResource(Product $product): ProductResource
-    {
-        $resource = new ProductResource();
-        $resource->id = $product->getId()->toString();
-        $resource->name = $product->getName();
-        $resource->description = $product->getDescription();
-        $resource->price = $product->getPrice();
-        $resource->stock = $product->getStock();
-        
-        return $resource;
-    }
-}
-
-// Get single product
-final readonly class GetProductAction
-{
-    public function __construct(
-        private ProductRepository $repository,
-    ) {}
-
-    public function __invoke(
-        #[MapUriVar('productId')] ProductId $productId,
-    ): ProductResource {
-        $product = $this->repository->find($productId);
-        
-        if (!$product) {
-            throw new NotFoundHttpException('Product not found');
-        }
-        
-        return $this->toResource($product);
-    }
-    
-    private function toResource(Product $product): ProductResource
-    {
-        $resource = new ProductResource();
-        $resource->id = $product->getId()->toString();
-        $resource->name = $product->getName();
-        $resource->description = $product->getDescription();
-        $resource->price = $product->getPrice();
-        $resource->stock = $product->getStock();
-        
-        return $resource;
-    }
-}
-
-// Create new product
-final readonly class CreateProductAction
-{
-    public function __construct(
-        private ProductRepository $repository,
-        private ValidatorInterface $validator,
-        private EventDispatcherInterface $eventDispatcher,
-    ) {}
-
-    public function __invoke(
-        ProductResource $data,
-    ): ProductResource {
-        // Validate input
-        $violations = $this->validator->validate($data);
-        if (count($violations) > 0) {
-            throw new ValidationException($violations);
-        }
-        
-        // Create entity
-        $product = new Product(
-            id: ProductId::generate(),
-            name: $data->name,
-            description: $data->description,
-            price: $data->price,
-            stock: $data->stock,
-        );
-        
-        // Save and dispatch event
-        $this->repository->save($product);
-        $this->eventDispatcher->dispatch(new ProductCreated($product->getId()));
-        
-        // Return resource with generated ID
-        $data->id = $product->getId()->toString();
-        return $data;
-    }
-}
-
-// Update existing product
-final readonly class UpdateProductAction
-{
-    public function __construct(
-        private ProductRepository $repository,
-        private ValidatorInterface $validator,
-    ) {}
-
-    public function __invoke(
-        ProductResource $data,
-        #[MapUriVar('productId')] ProductId $productId,
-    ): ProductResource {
-        // Find existing product
-        $product = $this->repository->find($productId);
-        if (!$product) {
-            throw new NotFoundHttpException('Product not found');
-        }
-        
-        // Validate input
-        $violations = $this->validator->validate($data);
-        if (count($violations) > 0) {
-            throw new ValidationException($violations);
-        }
-        
-        // Update entity
-        $product->updateDetails(
-            name: $data->name,
-            description: $data->description,
-            price: $data->price,
-        );
-        $product->updateStock($data->stock);
-        
-        // Save changes
-        $this->repository->save($product);
-        
-        // Return updated resource
-        $data->id = $product->getId()->toString();
-        return $data;
-    }
-}
-
-// Delete product
-final readonly class DeleteProductAction
-{
-    public function __construct(
-        private ProductRepository $repository,
-        private EventDispatcherInterface $eventDispatcher,
-    ) {}
-
-    public function __invoke(
-        #[MapUriVar('productId')] ProductId $productId,
-    ): null {
-        $product = $this->repository->find($productId);
-        
-        if (!$product) {
-            throw new NotFoundHttpException('Product not found');
-        }
-        
-        // Delete and dispatch event
-        $this->repository->remove($product);
-        $this->eventDispatcher->dispatch(new ProductDeleted($productId));
-        
-        // Return null for 204 No Content response
-        return null;
-    }
-}
-```
-
-### Using Symfony Services
-
-Leverage Symfony's ArgumentResolver to inject any service or request data:
-
-```php
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\Security\Core\Security;
-use Psr\Log\LoggerInterface;
-
-final readonly class ComplexAction
-{
-    public function __construct(
-        private Security $security,
-        private LoggerInterface $logger,
-        private MailerInterface $mailer,
-    ) {}
-
-    public function __invoke(
-        OrderResource $data,
-        Request $request,  // Automatically injected
-        #[MapUriVar('shopId')] ShopId $shopId,
-        #[MapUriVar('customerId')] CustomerId $customerId,
-    ): OrderResource {
-        // Access current user
-        $user = $this->security->getUser();
-        
-        // Log the action
-        $this->logger->info('Processing order', [
-            'shop_id' => $shopId->toString(),
-            'customer_id' => $customerId->toString(),
-            'user' => $user?->getUserIdentifier(),
-            'ip' => $request->getClientIp(),
-        ]);
-        
-        // Process the order...
-        $order = $this->processOrder($data, $shopId, $customerId);
-        
-        // Send confirmation email
-        $this->mailer->send(
-            $this->createOrderConfirmationEmail($order, $customerId)
-        );
-        
-        return OrderResource::fromEntity($order);
-    }
-}
-```
-
-### Error Handling
-
-Handle validation and business logic errors gracefully:
-
-```php
-use Symfony\Component\HttpKernel\Exception\{BadRequestHttpException, ConflictHttpException};
-use Symfony\Component\Validator\Validator\ValidatorInterface;
-
-final readonly class RegisterAccountAction
-{
-    public function __construct(
-        private AccountRepository $repository,
-        private ValidatorInterface $validator,
-        private PasswordHasherInterface $passwordHasher,
-    ) {}
-
-    public function __invoke(
-        AccountRegistrationResource $data,
-    ): AccountResource {
-        // Validate input data
-        $violations = $this->validator->validate($data);
-        if (count($violations) > 0) {
-            $errors = [];
-            foreach ($violations as $violation) {
-                $errors[$violation->getPropertyPath()] = $violation->getMessage();
-            }
-            throw new BadRequestHttpException(json_encode($errors));
-        }
-        
-        // Check for duplicate email
-        if ($this->repository->findByEmail($data->email)) {
-            throw new ConflictHttpException('Email already registered');
-        }
-        
-        // Business logic validation
-        if (!$this->isValidDomain($data->email)) {
-            throw new BadRequestHttpException('Email domain not allowed');
-        }
-        
-        // Create account
-        $account = new Account(
-            id: AccountId::generate(),
-            email: $data->email,
-            passwordHash: $this->passwordHasher->hash($data->password),
-        );
-        
-        $this->repository->save($account);
-        
-        return AccountResource::fromEntity($account);
-    }
-    
-    private function isValidDomain(string $email): bool
-    {
-        $domain = substr($email, strpos($email, '@') + 1);
-        $blockedDomains = ['tempmail.com', 'throwaway.email'];
-        
-        return !in_array($domain, $blockedDomains, true);
-    }
-}
-```
+- **[Progression Guide](docs/progression-guide.md)** - Evolution from basic patterns to DDD, migration strategy, when to use each approach
+- **[Clean Architecture & DDD](docs/clean-architecture.md)** - Domain-driven design patterns, layer separation, proper DTOs
+- **[Advanced Examples](docs/advanced-examples.md)** - Multiple URI variables, custom constructors, complex business logic
+- **[Complete CRUD Examples](docs/crud-examples.md)** - Full Create, Read, Update, Delete operations with nested resources
+- **[Symfony Integration](docs/symfony-integration.md)** - Error handling, event integration, cache, messenger, custom resolvers
+- **[Architecture & Internals](docs/architecture.md)** - How the bundle works under the hood, extension points, performance
 
 ## How It Works
 
 1. **Processor Detection**: The bundle decorates API Platform's state processor to detect invokable processors
-2. **Argument Resolution**: When an invokable processor is detected, it uses Symfony's ArgumentResolver to resolve all parameters
+2. **Argument Resolution**: Uses Symfony's ArgumentResolver to resolve all parameters automatically
 3. **URI Variable Mapping**: The `#[MapUriVar]` attribute maps URI variables to typed value objects
 4. **Type Conversion**: Automatically converts string URI variables to your domain value objects
 5. **Dependency Injection**: Full support for constructor injection of services
