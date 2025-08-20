@@ -26,6 +26,7 @@
     "test:unit": "vendor/bin/phpunit --testsuite=unit",
     "test:integration": "vendor/bin/phpunit --testsuite=integration",
     "test:coverage": "vendor/bin/phpunit --coverage-html coverage",
+    "test:coverage:clover": "vendor/bin/phpunit --coverage-clover coverage.xml",
     "phpstan": "vendor/bin/phpstan analyse",
     "phpstan:test": "vendor/bin/phpstan analyse -c phpstan-tests.neon",
     "cs:check": "vendor/bin/ecs check",
